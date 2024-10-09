@@ -1,70 +1,93 @@
 import os
 from dotenv import load_dotenv
-from typing import Annotated 
+from typing import Annotated
 from typing_extensions import TypedDict
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langchain_community.utilities import WikipediaAPIWrapper
+from langchain_community.tools import WikipediaQueryRun
+from langchain.chat_models import AzureChatOpenAI
+from langchain.schema import HumanMessage
+from langgraph.prebuilt import ToolNode, tools_condition
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
-# Importing necessary libraries from LangChain and LangGraph
-from langchain_community.utilities import ArxivAPIWrapper, WikipediaAPIWrapper
-from langchain_community.tools import ArxivQueryRun, WikipediaQueryRun
-from langgraph.graph.message import add_messages
-from langgraph.graph import StateGraph, START, END
-from langgraph.prebuilt import ToolNode, tools_condition    
-from langchain_openai import AzureChatOpenAI
+# Azure OpenAI settings
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
 
-# Initialize Wikipedia and Arxiv tools
-arxiv_wrapper = ArxivAPIWrapper(top_k_results=1, doc_content_chars_max=300)
-arxiv_tool = ArxivQueryRun(api_wrapper=arxiv_wrapper)
+# Ensure the API key is loaded
+if not AZURE_OPENAI_API_KEY or not AZURE_OPENAI_ENDPOINT or not AZURE_OPENAI_DEPLOYMENT_NAME:
+    raise ValueError("Azure OpenAI API credentials are missing in .env file.")
 
-api_wrapper = WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=300)
-wiki_tool = WikipediaQueryRun(api_wrapper=api_wrapper)
-
+# Setup Wikipedia tool
+wiki_wrapper = WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=300)
+wiki_tool = WikipediaQueryRun(api_wrapper=wiki_wrapper)
 tools = [wiki_tool]
 
-# Define state type for LangGraph
+# Define a state structure for LangGraph
 class State(TypedDict):
     messages: Annotated[list, add_messages]
 
-# Build the state graph for LangGraph
+# Initialize LangGraph state graph
 graph_builder = StateGraph(State)
 
-# Initialize Azure OpenAI LLM model
+# Define the system prompt for Azure OpenAI
+SYSTEM_PROMPT = "You are an Intelligent History Chatbot, and you have to answer all the questions related to the History of the World."
+
+# Initialize AzureChatOpenAI model
 llm = AzureChatOpenAI(
-    deployment_name=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-    openai_api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    openai_api_base=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    openai_api_version=os.getenv("OPENAI_API_VERSION"),
+    deployment_name=AZURE_OPENAI_DEPLOYMENT_NAME,
+    openai_api_version="2023-05-15",
+    openai_api_key=AZURE_OPENAI_API_KEY,
+    openai_api_base=AZURE_OPENAI_ENDPOINT
 )
 
-# Bind tools to LLM
-llm_with_tools = llm.bind_tools(tools=tools)
+# Function to call Azure OpenAI LLM
+def call_azure_openai(prompt):
+    messages = [
+        HumanMessage(content=f"{SYSTEM_PROMPT}\nUser: {prompt}")
+    ]
+    response = llm(messages=messages)
+    return response.content
 
+# Create an LLM with tools
 def chatbot(state: State):
-    return {"messages": [llm_with_tools.invoke(state["messages"])]}
+    # Extract user's message
+    user_message = state["messages"][-1].content
+    try:
+        # Call Azure LLM with user's message
+        llm_response = call_azure_openai(user_message)
+        return {"messages": [HumanMessage(content=llm_response)]}
+    except Exception as e:
+        # Fallback to tools if LLM fails
+        return {"messages": [wiki_tool.invoke(user_message)]}
 
-# Add nodes and edges to the graph builder for flow execution
+# Add chatbot node to LangGraph
 graph_builder.add_node("chatbot", chatbot)
 graph_builder.add_edge(START, "chatbot")
 
+# Add Wikipedia tool node and integrate it with the chatbot
 tool_node = ToolNode(tools=tools)
 graph_builder.add_node("tools", tool_node)
-
 graph_builder.add_conditional_edges("chatbot", tools_condition)
 graph_builder.add_edge("tools", "chatbot")
 graph_builder.add_edge("chatbot", END)
 
-# Compile the graph for execution
+# Compile the graph
 graph = graph_builder.compile()
 
-# Main execution flow for user input queries
-if __name__ == "__main__":
-    user_input = input("Enter your question: ")
-    
+# Function to run the chatbot
+def run_chatbot(user_input):
     events = graph.stream(
-        {"messages": [("user", user_input)]}, stream_mode="values"
+        {"messages": [HumanMessage(content=user_input)]}, stream_mode="values"
     )
-
     for event in events:
-        event["messages"][-1].pretty_print()
+        print(event["messages"][-1].content)
+
+# Main entry point
+if __name__ == "__main__":
+    user_input = input("Enter your query: ")
+    run_chatbot(user_input)
