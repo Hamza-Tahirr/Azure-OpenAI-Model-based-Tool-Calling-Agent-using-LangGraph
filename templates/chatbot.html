@@ -13,20 +13,43 @@
 </head>
 <body class="bg-dark text-light">
 
-    <div class="container-fluid vh-100 d-flex flex-column justify-content-center align-items-center">
-        <div class="card chat-card bg-secondary text-light shadow-lg">
-            <div class="card-header text-center">
-                <h5 class="mb-0">Chatbot UI</h5>
-            </div>
-            <div class="card-body" id="chat-box">
-                <p><strong>Bot:</strong> Tell me your IP address.</p>
-            </div>
-            <div class="card-footer bg-dark">
-                <form id="chat-form" class="d-flex">
-                    <input type="text" id="message" class="form-control me-2" placeholder="Type your message here..." required>
-                    <button type="submit" class="btn btn-primary"><i class="material-icons">send</i></button>
-                </form>
-            </div>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar with toggle button for smaller screens -->
+            <nav class="col-md-2 sidebar d-none d-md-block" id="sidebar">
+                <div class="position-sticky">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link fs-4" href="#">ORCA <span class="material-icons">chat</span></a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">Dashboard</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">Settings</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">Help</a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <!-- Main Content -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 main-content">
+                <div class="text-center">
+                    <h1 class="main-header display-5 mb-4">How can I assist you?</h1>
+                    <div id="chat-box" class="rounded shadow-sm p-3 mb-4" style="height: 400px; overflow-y: auto; border: 1px solid #4a4a4a; background-color: #2b2b2b;"></div>
+                    <form id="chat-form" class="d-flex justify-content-center mb-4">
+                        <div class="input-group">
+                            <input id="message" class="form-control rounded-pill me-2" type="text" placeholder="Type your message..." aria-label="Message">
+                            <button class="btn btn-outline-secondary rounded-circle" type="submit" id="button-addon2">
+                                <span class="material-icons">send</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </main>
         </div>
     </div>
 
@@ -36,14 +59,14 @@
     <script>
         const chatForm = document.getElementById('chat-form');
         const chatBox = document.getElementById('chat-box');
-        
+
         chatForm.addEventListener('submit', function(e) {
             e.preventDefault();
             const messageInput = document.getElementById('message');
             const userMessage = messageInput.value;
 
             // Display user's message
-            chatBox.innerHTML += '<p><strong>You:</strong> ' + userMessage + '</p>';
+            chatBox.innerHTML += '<p class="text-light"><strong>You:</strong> ' + userMessage + '</p>';
             messageInput.value = '';
 
             // Send message to the server
@@ -56,10 +79,15 @@
             })
             .then(response => response.json())
             .then(data => {
-                chatBox.innerHTML += '<p><strong>Bot:</strong> ' + data.response + '</p>';
+                chatBox.innerHTML += '<p class="text-info"><strong>Bot:</strong> ' + data.response + '</p>';
                 chatBox.scrollTop = chatBox.scrollHeight; // Scroll to the bottom
             });
         });
+
+        // Initial prompt for IP address
+        window.onload = function() {
+            chatBox.innerHTML += '<p class="text-info"><strong>Bot:</strong> Tell me your IP address.</p>';
+        };
     </script>
 </body>
 </html>
