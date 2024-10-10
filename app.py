@@ -1,12 +1,13 @@
 import os
 import requests
 from dotenv import load_dotenv
-from typing import Annotated
-from typing_extensions import TypedDict
+from flask import Flask, render_template, request, jsonify, session
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langchain_openai.chat_models.azure import AzureChatOpenAI
 from langchain.schema import HumanMessage
+from typing import Annotated
+from typing_extensions import TypedDict
 
 # Load environment variables
 load_dotenv()
@@ -40,6 +41,10 @@ llm = AzureChatOpenAI(
     openai_api_version=AZURE_OPENAI_API_VERSION
 )
 
+# Flask app initialization
+app = Flask(__name__)
+app.secret_key = 'supersecretkey'  # For session management
+
 # Function to fetch IP details using IPStack API
 def fetch_ip_details(ip_address: str):
     API_URL = f"https://api.ipstack.com/{ip_address}?access_key=b68789c2a59492afff58e8658831ade8"
@@ -51,23 +56,18 @@ def fetch_ip_details(ip_address: str):
 
 # Create an LLM with tools
 def chatbot(state: State):
-    # Extract user's message correctly
     user_message = state["messages"][-1].content
     
-    # Check if user wants IP details
     if "details of my IP" in user_message:
         ip_address = state["ip_address"]
         ip_details = fetch_ip_details(ip_address)
         return {"messages": [HumanMessage(content=str(ip_details))]}
     
     try:
-        # Call Azure LLM with user's message
         messages = [HumanMessage(content=f"{SYSTEM_PROMPT}\nUser: {user_message}")]
         llm_response = llm(messages=messages)
         
-        # Check if LLM response is satisfactory
         if not llm_response.content or "I'm sorry" in llm_response.content:
-            # Fallback to IP details if LLM response is not satisfactory
             ip_address = state["ip_address"]
             ip_details = fetch_ip_details(ip_address)
             return {"messages": [HumanMessage(content=str(ip_details))]}
@@ -75,10 +75,7 @@ def chatbot(state: State):
         return {"messages": [HumanMessage(content=llm_response.content)]}
     
     except Exception as e:
-        # Log exception (optional)
         print(f"Error occurred: {e}")
-        
-        # Fallback to IP details in case of an exception
         ip_address = state["ip_address"]
         ip_details = fetch_ip_details(ip_address)
         return {"messages": [HumanMessage(content=str(ip_details))]}
@@ -91,18 +88,32 @@ graph_builder.add_edge("chatbot", END)
 # Compile the graph
 graph = graph_builder.compile()
 
-# Function to run the chatbot
-def run_chatbot():
-    ip_address = input("Enter the IP address: ")
-    user_input = input("Enter your query: ")
-    
-    events = graph.stream(
-        {"messages": [HumanMessage(content=user_input)], "ip_address": ip_address}, stream_mode="values"
-    )
-    
-    for event in events:
-        print(event["messages"][-1].content)
+# Flask route for chatbot page
+@app.route('/')
+def index():
+    return render_template('chatbot.html')
 
-# Main entry point
-if __name__ == "__main__":
-    run_chatbot()
+# Flask route to handle user input (AJAX call)
+@app.route('/get_response', methods=['POST'])
+def get_response():
+    user_input = request.form['message']
+    
+    if 'ip_address' not in session:
+        # First interaction: Ask for the user's IP
+        session['ip_address'] = user_input  # Store the provided IP address in session
+        response_message = "Ask me anything about your IP."
+    else:
+        # If IP is already provided, proceed with chatbot logic
+        ip_address = session['ip_address']
+        events = graph.stream(
+            {"messages": [HumanMessage(content=user_input)], "ip_address": ip_address}, stream_mode="values"
+        )
+        
+        # Get the final response from the events
+        for event in events:
+            response_message = event["messages"][-1].content
+    
+    return jsonify({'response': response_message})
+
+if __name__ == '__main__':
+    app.run(debug=True)
