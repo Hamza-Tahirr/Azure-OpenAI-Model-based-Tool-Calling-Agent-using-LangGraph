@@ -3,6 +3,7 @@ body {
     background-color: #1e1e1e;
     color: #f5f5f5;
     font-family: 'Roboto', sans-serif;
+    overflow: hidden;
 }
 
 .sidebar {
@@ -53,6 +54,12 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    scrollbar-width: none; /* Hide scrollbar for Firefox */
+    -ms-overflow-style: none;  /* IE and Edge */
+}
+
+#chat-box::-webkit-scrollbar {
+    display: none; /* Hide scrollbar for Chrome, Safari, and Opera */
 }
 
 .input-group {
@@ -88,8 +95,6 @@ body {
 }
 
 /* Chat bubbles */
-
-/* User messages */
 .user-message {
     background-color: #4a4a4a;
     color: #ffffff;
@@ -97,10 +102,9 @@ body {
     border-radius: 20px;
     margin-bottom: 10px;
     max-width: 75%;
-    align-self: flex-end;  /* Align to the right */
+    align-self: flex-end;
 }
 
-/* Bot messages */
 .bot-message {
     background-color: #343a40;
     color: #00aaff;
@@ -108,7 +112,7 @@ body {
     border-radius: 20px;
     margin-bottom: 10px;
     max-width: 75%;
-    align-self: flex-start;  /* Align to the left */
+    align-self: flex-start;
 }
 
 /* Animations */
