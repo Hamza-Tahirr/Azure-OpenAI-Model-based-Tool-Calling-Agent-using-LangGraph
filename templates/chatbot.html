@@ -13,23 +13,19 @@
 </head>
 <body class="bg-dark text-light">
 
+    <!-- Sidebar toggle button for small screens -->
+    <button id="sidebarToggle" class="btn btn-light d-md-none position-fixed" style="top: 10px; left: 10px;">
+        <span class="material-icons">menu</span>
+    </button>
+
     <div class="container-fluid">
         <div class="row">
-            <!-- Sidebar with toggle button for smaller screens -->
+            <!-- Sidebar -->
             <nav class="col-md-2 sidebar d-none d-md-block" id="sidebar">
                 <div class="position-sticky">
                     <ul class="nav flex-column">
                         <li class="nav-item">
                             <a class="nav-link fs-4" href="#">ORCA <span class="material-icons">chat</span></a>
-                        </li>
-                        <li class="nav-item">
-                            <a href="#" class="nav-link">Dashboard</a>
-                        </li>
-                        <li class="nav-item">
-                            <a href="#" class="nav-link">Settings</a>
-                        </li>
-                        <li class="nav-item">
-                            <a href="#" class="nav-link">Help</a>
                         </li>
                     </ul>
                 </div>
@@ -40,6 +36,9 @@
                 <div class="text-center">
                     <h1 class="main-header display-5 mb-4">How can I assist you?</h1>
                     <div id="chat-box" class="rounded shadow-sm p-3 mb-4" style="height: 400px; overflow-y: auto; border: 1px solid #4a4a4a; background-color: #2b2b2b;"></div>
+                    <div id="spinner" class="spinner-border text-light mb-4 d-none" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
                     <form id="chat-form" class="d-flex justify-content-center mb-4">
                         <div class="input-group">
                             <input id="message" class="form-control rounded-pill me-2" type="text" placeholder="Type your message..." aria-label="Message">
@@ -57,17 +56,34 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
+        // Sidebar toggle functionality
+        const sidebar = document.getElementById('sidebar');
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        sidebarToggle.addEventListener('click', () => {
+            sidebar.classList.toggle('hidden');  // Show/hide sidebar
+        });
+
         const chatForm = document.getElementById('chat-form');
         const chatBox = document.getElementById('chat-box');
+        const spinner = document.getElementById('spinner');
 
         chatForm.addEventListener('submit', function(e) {
             e.preventDefault();
             const messageInput = document.getElementById('message');
             const userMessage = messageInput.value;
 
-            // Display user's message
-            chatBox.innerHTML += '<p class="text-light"><strong>You:</strong> ' + userMessage + '</p>';
+            if (userMessage.trim() === '') return;
+
+            // Slide-in user's message
+            const userMessageElement = document.createElement('div');
+            userMessageElement.classList.add('text-light', 'slide-in-right', 'user-message');
+            userMessageElement.innerHTML = `<strong>You:</strong> ${userMessage}`;
+            chatBox.appendChild(userMessageElement);
+
             messageInput.value = '';
+
+            // Show loading spinner
+            spinner.classList.remove('d-none');
 
             // Send message to the server
             fetch('/get_response', {
@@ -79,14 +95,25 @@
             })
             .then(response => response.json())
             .then(data => {
-                chatBox.innerHTML += '<p class="text-info"><strong>Bot:</strong> ' + data.response + '</p>';
-                chatBox.scrollTop = chatBox.scrollHeight; // Scroll to the bottom
+                // Slide-in bot's response
+                const botMessageElement = document.createElement('div');
+                botMessageElement.classList.add('text-info', 'slide-in-left', 'bot-message');
+                botMessageElement.innerHTML = `<strong>Bot:</strong> ${data.response}`;
+                chatBox.appendChild(botMessageElement);
+
+                // Hide loading spinner
+                spinner.classList.add('d-none');
+
+                chatBox.scrollTop = chatBox.scrollHeight;  // Scroll to the bottom
             });
         });
 
         // Initial prompt for IP address
         window.onload = function() {
-            chatBox.innerHTML += '<p class="text-info"><strong>Bot:</strong> Tell me your IP address.</p>';
+            const botMessageElement = document.createElement('div');
+            botMessageElement.classList.add('text-info', 'slide-in-left', 'bot-message');
+            botMessageElement.innerHTML = '<strong>Bot:</strong> Tell me your IP address.';
+            chatBox.appendChild(botMessageElement);
         };
     </script>
 </body>
