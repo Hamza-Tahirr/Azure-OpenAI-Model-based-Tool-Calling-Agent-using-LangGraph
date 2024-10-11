@@ -33,6 +33,8 @@ body {
 
 .main-content {
     padding: 20px;
+    width: 80%;  /* Set the main content width to 80% */
+    margin: 0 auto;  /* Center the content horizontally */
     min-height: 100vh;
     transition: padding 0.3s ease;
 }
