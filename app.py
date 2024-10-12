@@ -1,3 +1,5 @@
+# customer_support_ip_agent.py
+
 import os
 import requests
 from dotenv import load_dotenv
@@ -11,6 +13,7 @@ from typing import Annotated
 from typing_extensions import TypedDict
 
 # Load environment variables
+print("Loading environment variables...")
 load_dotenv()
 
 # Azure OpenAI settings
@@ -22,6 +25,7 @@ AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION")
 # Ensure the API key is loaded
 if not AZURE_OPENAI_API_KEY or not AZURE_OPENAI_ENDPOINT or not AZURE_OPENAI_DEPLOYMENT_NAME or not AZURE_OPENAI_API_VERSION:
     raise ValueError("Azure OpenAI API credentials are missing in .env file.")
+print("Azure OpenAI credentials loaded successfully.")
 
 # Define a state structure for LangGraph
 class State(TypedDict):
@@ -29,12 +33,14 @@ class State(TypedDict):
     ip_address: str  # Ensure ip_address is included in the state
 
 # Initialize LangGraph state graph
+print("Initializing LangGraph state graph...")
 graph_builder = StateGraph(State)
 
 # Define the system prompt for Azure OpenAI
 SYSTEM_PROMPT = "You are an IP specialist and you will answer the given prompt by using your knowledge."
 
 # Initialize AzureChatOpenAI model
+print("Initializing AzureChatOpenAI model...")
 llm = AzureChatOpenAI(
     azure_deployment=AZURE_OPENAI_DEPLOYMENT_NAME,
     azure_endpoint=AZURE_OPENAI_ENDPOINT,
@@ -52,16 +58,21 @@ def fetch_ip_details_tool(ip_address: str):
     """
     Fetch details of a given IP address using the IPStack API.
     """
+    print(f"Fetching IP details for {ip_address}...")
     API_URL = f"https://api.ipstack.com/{ip_address}?access_key=b68789c2a59492afff58e8658831ade8"
     response = requests.get(API_URL)
     if response.status_code == 200:
+        print(f"Successfully fetched IP details for {ip_address}.")
         return response.json()
     else:
+        print(f"Failed to fetch IP details for {ip_address}.")
         return {"error": "Failed to fetch IP details"}
 
 # Create an LLM with tools
 def chatbot(state: State):
+    print("Chatbot invoked with the current state...")
     user_message = state["messages"][-1].content
+    print(f"User message: {user_message}")
     
     if "details of my IP" in user_message:
         ip_address = state["ip_address"]
@@ -70,13 +81,16 @@ def chatbot(state: State):
     
     try:
         messages = [HumanMessage(content=f"{SYSTEM_PROMPT}\nUser: {user_message}")]
+        print("Sending message to AzureChatOpenAI model...")
         llm_response = llm(messages=messages)
         
         if not llm_response.content or "I'm sorry" in llm_response.content:
+            print("LLM response is unsatisfactory or apologetic, fetching IP details...")
             ip_address = state["ip_address"]
             ip_details = fetch_ip_details_tool(ip_address)
             return {"messages": [HumanMessage(content=str(ip_details))]}
         
+        print("LLM response received successfully.")
         return {"messages": [HumanMessage(content=llm_response.content)]}
     
     except Exception as e:
@@ -86,30 +100,36 @@ def chatbot(state: State):
         return {"messages": [HumanMessage(content=str(ip_details))]}
 
 # Add chatbot node to LangGraph
+print("Adding chatbot node to LangGraph...")
 graph_builder.add_node("chatbot", chatbot)
 graph_builder.add_edge(START, "chatbot")
 graph_builder.add_edge("chatbot", END)
 
 # Compile the graph
+print("Compiling LangGraph...")
 graph = graph_builder.compile()
 
 # Flask route for chatbot page
 @app.route('/')
 def index():
+    print("Rendering index page...")
     return render_template('chatbot.html')
 
 # Flask route to handle user input (AJAX call)
 @app.route('/get_response', methods=['POST'])
 def get_response():
     user_input = request.form['message']
+    print(f"Received user input: {user_input}")
     
     if 'ip_address' not in session:
         # First interaction: Ask for the user's IP
+        print("First interaction detected, asking for IP address...")
         session['ip_address'] = user_input  # Store the provided IP address in session
         response_message = "Ask me anything about your IP."
     else:
         # If IP is already provided, proceed with chatbot logic
         ip_address = session['ip_address']
+        print(f"Proceeding with chatbot logic. User's IP: {ip_address}")
         events = graph.stream(
             {"messages": [HumanMessage(content=user_input)], "ip_address": ip_address}, stream_mode="values"
         )
@@ -118,7 +138,11 @@ def get_response():
         for event in events:
             response_message = event["messages"][-1].content
     
+    print(f"Response message: {response_message}")
     return jsonify({'response': response_message})
 
+# Main entry point for running the Flask app
 if __name__ == '__main__':
+    print("Starting Flask app in debug mode...")
     app.run(debug=True)
+
