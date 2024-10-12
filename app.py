@@ -1,18 +1,15 @@
-
 import os
 import requests
 from dotenv import load_dotenv
 from flask import Flask, render_template, request, jsonify, session
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
 from langchain_openai.chat_models.azure import AzureChatOpenAI
-from langchain.schema import HumanMessage
+from langchain.schema import HumanMessage, SystemMessage
 from langchain_core.tools import tool
+from langchain_core.messages import ToolMessage
 from typing import Annotated
-from typing_extensions import TypedDict
+import re
 
 # Load environment variables
-print("Loading environment variables...")
 load_dotenv()
 
 # Azure OpenAI settings
@@ -21,25 +18,13 @@ AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
 AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
 AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION")
 
-# Ensure the API key is loaded
 if not AZURE_OPENAI_API_KEY or not AZURE_OPENAI_ENDPOINT or not AZURE_OPENAI_DEPLOYMENT_NAME or not AZURE_OPENAI_API_VERSION:
     raise ValueError("Azure OpenAI API credentials are missing in .env file.")
-print("Azure OpenAI credentials loaded successfully.")
 
-# Define a state structure for LangGraph
-class State(TypedDict):
-    messages: Annotated[list, add_messages]
-    ip_address: str  # Ensure ip_address is included in the state
-
-# Initialize LangGraph state graph
-print("Initializing LangGraph state graph...")
-graph_builder = StateGraph(State)
-
-# Define the system prompt for Azure OpenAI
-SYSTEM_PROMPT = "You are an IP specialist and you will answer the given prompt by using your knowledge."
+# System prompt for the LLM
+SYSTEM_PROMPT = "You are an IP specialist, and you will answer the given prompt by using your knowledge."
 
 # Initialize AzureChatOpenAI model
-print("Initializing AzureChatOpenAI model...")
 llm = AzureChatOpenAI(
     azure_deployment=AZURE_OPENAI_DEPLOYMENT_NAME,
     azure_endpoint=AZURE_OPENAI_ENDPOINT,
@@ -49,7 +34,7 @@ llm = AzureChatOpenAI(
 
 # Flask app initialization
 app = Flask(__name__)
-app.secret_key = 'supersecretkey'  # For session management
+app.secret_key = 'supersecretkey'
 
 # Tool to fetch IP details using IPStack API
 @tool
@@ -57,91 +42,86 @@ def fetch_ip_details_tool(ip_address: str):
     """
     Fetch details of a given IP address using the IPStack API.
     """
-    print(f"Fetching IP details for {ip_address}...")
     API_URL = f"https://api.ipstack.com/{ip_address}?access_key=b68789c2a59492afff58e8658831ade8"
     response = requests.get(API_URL)
     if response.status_code == 200:
-        print(f"Successfully fetched IP details for {ip_address}.")
         return response.json()
     else:
-        print(f"Failed to fetch IP details for {ip_address}.")
         return {"error": "Failed to fetch IP details"}
 
+# Set of tools available
+tools = [fetch_ip_details_tool]
+
+# Utility function to detect if the user's message contains an IP address
+def detect_ip_in_message(message: str) -> str:
+    ip_regex = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+    match = re.search(ip_regex, message)
+    if match:
+        return match.group(0)  # Return the IP address if found
+    return None
+
+# Handle tool calls in conversation
+def handle_tool_calls(result, messages):
+    for tool_call in result.tool_calls:
+        print("Use Tool:", tool_call)
+        
+        # Find the appropriate tool by its name (case-insensitive match)
+        selected_tool = {tool.name.lower(): tool for tool in tools}[tool_call["name"].lower()]
+        
+        # Invoke the selected tool with the arguments provided in the tool call
+        tool_output = selected_tool.invoke(tool_call["args"])
+        print(tool_output)
+        
+        # Append the tool output to the conversation as a message
+        messages.append(ToolMessage(tool_output, tool_call_id=tool_call["id"]))
+
 # Create an LLM with tools
-def chatbot(state: State):
-    print("Chatbot invoked with the current state...")
-    user_message = state["messages"][-1].content
-    print(f"User message: {user_message}")
+def chatbot(user_input: str, chat_history: list):
+    # System message setup
+    sys_msg = [SystemMessage(content=SYSTEM_PROMPT)]
     
-    if "details of my IP" in user_message:
-        ip_address = state["ip_address"]
-        ip_details = fetch_ip_details_tool(ip_address)
-        return {"messages": [HumanMessage(content=str(ip_details))]}
+    # Detect if an IP address is present in the user input
+    ip_address = detect_ip_in_message(user_input)
     
-    try:
-        messages = [HumanMessage(content=f"{SYSTEM_PROMPT}\nUser: {user_message}")]
-        print("Sending message to AzureChatOpenAI model...")
+    if ip_address:
+        # Use the tool to fetch IP details
+        ip_details = fetch_ip_details_tool.invoke({"ip_address": ip_address})
+        response_message = f"Here are the details for the IP {ip_address}: {ip_details}"
+    else:
+        # If no IP address is found, proceed with the usual conversation flow
+        messages = [HumanMessage(content=f"{SYSTEM_PROMPT}\nUser: {user_input}")]
         llm_response = llm(messages=messages)
         
-        if not llm_response.content or "I'm sorry" in llm_response.content:
-            print("LLM response is unsatisfactory or apologetic, fetching IP details...")
-            ip_address = state["ip_address"]
-            ip_details = fetch_ip_details_tool(ip_address)
-            return {"messages": [HumanMessage(content=str(ip_details))]}
-        
-        print("LLM response received successfully.")
-        return {"messages": [HumanMessage(content=llm_response.content)]}
+        if not llm_response.content:
+            response_message = "I'm sorry, I couldn't provide an answer."
+        else:
+            response_message = llm_response.content
     
-    except Exception as e:
-        print(f"Error occurred: {e}")
-        ip_address = state["ip_address"]
-        ip_details = fetch_ip_details_tool(ip_address)
-        return {"messages": [HumanMessage(content=str(ip_details))]}
-
-# Add chatbot node to LangGraph
-print("Adding chatbot node to LangGraph...")
-graph_builder.add_node("chatbot", chatbot)
-graph_builder.add_edge(START, "chatbot")
-graph_builder.add_edge("chatbot", END)
-
-# Compile the graph
-print("Compiling LangGraph...")
-graph = graph_builder.compile()
+    return response_message
 
 # Flask route for chatbot page
 @app.route('/')
 def index():
-    print("Rendering index page...")
     return render_template('chatbot.html')
 
 # Flask route to handle user input (AJAX call)
 @app.route('/get_response', methods=['POST'])
 def get_response():
     user_input = request.form['message']
-    print(f"Received user input: {user_input}")
+    chat_history = session.get('chat_history', [])
     
-    if 'ip_address' not in session:
-        # First interaction: Ask for the user's IP
-        print("First interaction detected, asking for IP address...")
-        session['ip_address'] = user_input  # Store the provided IP address in session
-        response_message = "Ask me anything about your IP."
-    else:
-        # If IP is already provided, proceed with chatbot logic
-        ip_address = session['ip_address']
-        print(f"Proceeding with chatbot logic. User's IP: {ip_address}")
-        events = graph.stream(
-            {"messages": [HumanMessage(content=user_input)], "ip_address": ip_address}, stream_mode="values"
-        )
-        
-        # Get the final response from the events
-        for event in events:
-            response_message = event["messages"][-1].content
+    # Add user input to chat history
+    chat_history.append({"role": "user", "content": user_input})
     
-    print(f"Response message: {response_message}")
+    # Get the chatbot response
+    response_message = chatbot(user_input, chat_history)
+    
+    # Add bot response to chat history
+    chat_history.append({"role": "bot", "content": response_message})
+    session['chat_history'] = chat_history
+    
     return jsonify({'response': response_message})
 
 # Main entry point for running the Flask app
 if __name__ == '__main__':
-    print("Starting Flask app in debug mode...")
     app.run(debug=True)
-
