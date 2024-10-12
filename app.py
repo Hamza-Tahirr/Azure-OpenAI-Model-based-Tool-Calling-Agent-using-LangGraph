@@ -6,6 +6,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langchain_openai.chat_models.azure import AzureChatOpenAI
 from langchain.schema import HumanMessage
+from langchain_core.tools import tool
 from typing import Annotated
 from typing_extensions import TypedDict
 
@@ -45,8 +46,12 @@ llm = AzureChatOpenAI(
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'  # For session management
 
-# Function to fetch IP details using IPStack API
-def fetch_ip_details(ip_address: str):
+# Tool to fetch IP details using IPStack API
+@tool
+def fetch_ip_details_tool(ip_address: str):
+    """
+    Fetch details of a given IP address using the IPStack API.
+    """
     API_URL = f"https://api.ipstack.com/{ip_address}?access_key=b68789c2a59492afff58e8658831ade8"
     response = requests.get(API_URL)
     if response.status_code == 200:
@@ -60,7 +65,7 @@ def chatbot(state: State):
     
     if "details of my IP" in user_message:
         ip_address = state["ip_address"]
-        ip_details = fetch_ip_details(ip_address)
+        ip_details = fetch_ip_details_tool(ip_address)
         return {"messages": [HumanMessage(content=str(ip_details))]}
     
     try:
@@ -69,7 +74,7 @@ def chatbot(state: State):
         
         if not llm_response.content or "I'm sorry" in llm_response.content:
             ip_address = state["ip_address"]
-            ip_details = fetch_ip_details(ip_address)
+            ip_details = fetch_ip_details_tool(ip_address)
             return {"messages": [HumanMessage(content=str(ip_details))]}
         
         return {"messages": [HumanMessage(content=llm_response.content)]}
@@ -77,7 +82,7 @@ def chatbot(state: State):
     except Exception as e:
         print(f"Error occurred: {e}")
         ip_address = state["ip_address"]
-        ip_details = fetch_ip_details(ip_address)
+        ip_details = fetch_ip_details_tool(ip_address)
         return {"messages": [HumanMessage(content=str(ip_details))]}
 
 # Add chatbot node to LangGraph
