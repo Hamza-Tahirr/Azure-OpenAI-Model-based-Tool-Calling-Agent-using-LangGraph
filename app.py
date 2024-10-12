@@ -1,4 +1,3 @@
-# customer_support_ip_agent.py
 
 import os
 import requests
